@@ -2,232 +2,170 @@ import streamlit as st
 import pandas as pd
 import altair as alt  
 from datetime import datetime
-
-# Page configuration - This must be the first Streamlit command in the page///
-st.set_page_config(page_title="Onboard", layout="wide")
-
-def waffle_menu():
-    menu_items = [
-        {"name": "Onboarding", "icon": "🆕"},
-        {"name": "Offboarding", "icon": "🚪"},
-        {"name": "Notes", "icon": "📝"}
-    ]
-    
-    st.markdown("""
-    <style>
-    .waffle-menu {
-        display: inline-block;
-        position: relative;
-    }
-    .waffle-button {
-        background-color: #f0f2f6;
-        border: none;
-        padding: 10px;
-        font-size: 20px;
-        cursor: pointer;
-    }
-    .waffle-content {
-        display: none;
-        position: absolute;
-        background-color: #f9f9f9;
-        min-width: 160px;
-        box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-        z-index: 1;
-        opacity: 0;
-        transform: translateY(-20px);
-        transition: opacity 0.3s, transform 0.3s;
-    }
-    .waffle-content.show {
-        opacity: 1;
-        transform: translateY(0);
-    }
-    .waffle-content a {
-        color: black;
-        padding: 12px 16px;
-        text-decoration: none;
-        display: block;
-        transition: background-color 0.2s;
-    }
-    .waffle-content a:hover {
-        background-color: #f1f1f1;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    menu_html = """
-    <div class="waffle-menu">
-        <button class="waffle-button" onclick="toggleWaffleMenu()"></button>
-        <div id="waffleMenu" class="waffle-content">
-    """
-    
-    for item in menu_items:
-        menu_html += f'<a href="#">{item["icon"]} {item["name"]}</a>'
-    
-    menu_html += """
-        </div>
-    </div>
-    <script>
-    function toggleWaffleMenu() {
-        var menu = document.getElementById("waffleMenu");
-        menu.style.display = menu.style.display === "block" ? "none" : "block";
-        setTimeout(() => {
-            menu.classList.toggle("show");
-        }, 10);
-    }
-    </script>
-    """
-    
-    st.markdown(menu_html, unsafe_allow_html=True)
-    pass
-
-
-# Add the waffle menu
-waffle_menu()
-
-
-# Initialize session state
-if 'employees' not in st.session_state:
-    st.session_state.employees = pd.DataFrame(columns=['Name', 'Position', 'Status', 'Start Date', 'Progress'])
-    st.session_state.employees['Start Date'] = pd.to_datetime(st.session_state.employees['Start Date'])
-
-if 'total_new_hires' not in st.session_state:
-    st.session_state.total_new_hires = 0  # Example data
-
-if 'total_offboards' not in st.session_state:
-    st.session_state.total_offboards = 0  # Example data
-
-# Main dashboard
-st.title("Onboarding/Offboarding Dashboard")
-
-# Helper function to create a metric with an icon
-def metric_with_icon(icon, label, value):
-    st.markdown(f'<div style="display: flex; align-items: center;">'
-                f'<div style="font-size: 24px; margin-right: 10px;">{icon}</div>'
-                f'<div>'
-                f'<div style="font-size: 14px; color: #888;">{label}</div>'
-                f'<div style="font-size: 24px; font-weight: bold;">{value}</div>'
-                f'</div></div>', unsafe_allow_html=True)
-
-# Create columns for metrics
-col1, col2, col3, col4, col5, col6 = st.columns(6)
-
-# Display metrics
-with col1:
-    metric_with_icon("👥", "Total New Hires", st.session_state.total_new_hires)
-
-with col2:
-    current_month = datetime.now().month
-    onboarding_this_month = len(st.session_state.employees[
-        (st.session_state.employees['Start Date'].dt.month == current_month) & 
-        (st.session_state.employees['Status'] != 'Completed')
-    ])
-    metric_with_icon("🆕", "Onboarding This Month", onboarding_this_month)
-
-with col3:
-    completed_this_month = len(st.session_state.employees[
-        (st.session_state.employees['Start Date'].dt.month == current_month) & 
-        (st.session_state.employees['Status'] == 'Completed')
-    ])
-    metric_with_icon("✅", "Completed This Month", completed_this_month)
-
-with col4:
-    overdue_tasks = 0  # Example data
-    metric_with_icon("⏰", "Overdue Tasks", overdue_tasks)
-
-with col5:
-    metric_with_icon("🚪", "Total Offboards", st.session_state.total_offboards)
-
-with col6:
-    offboard_this_month = 0 # Example data
-    metric_with_icon("📅", "Offboard This Month", offboard_this_month)
-
-
-
-
-# Onboarding progress chart///
-st.header("Onboarding Progress")
-# DataFrame for onboarding chart
-months = ['Jan', 'Feb', 'Mar', 'Apr', 'May']
-onboarding_data = pd.DataFrame({
-    'Month': months,
-    'Completed': [len(st.session_state.employees[(st.session_state.employees['Status'] == 'Completed') & (pd.to_datetime(st.session_state.employees['Start Date']).dt.month == i+1)]) for i in range(5)],
-    'In Progress': [len(st.session_state.employees[(st.session_state.employees['Status'] == 'In Progress') & (pd.to_datetime(st.session_state.employees['Start Date']).dt.month == i+1)]) for i in range(5)]
-})
-
-chart = alt.Chart(onboarding_data.melt('Month', var_name='Status', value_name='Count')).mark_bar().encode(
-    x='Month:O',
-    y='Count:Q',
-    color=alt.Color('Status:N', scale=alt.Scale(domain=['Completed', 'In Progress'], range=['#4CAF50', '#2196F3'])),
-    column='Status:N'
-).properties(
-    width=300
+from src.database import (
+    get_all_employees, get_total_new_hires, get_total_offboards,
+    get_onboarding_this_month, get_completed_this_month, get_onboarding_data,
+    add_employee, update_employee_progress, offboard_employee
 )
 
-st.altair_chart(chart)
 
-# Recent new hires header
-st.subheader("Recent New Hires")
-
-# Sort employees by Start Date (most recent first) and take the top 5
-recent_hires = st.session_state.employees.sort_values('Start Date', ascending=False).head(5)
-
-for _, hire in recent_hires.iterrows():
-    col1, col2, col3 = st.columns([2, 2, 4])
-    with col1:
-        st.write(hire['Name'])
-    with col2:
-        st.write(hire['Position'])
-    with col3:
-        progress = int(hire['Progress']) if pd.notnull(hire['Progress']) else 0
-        st.progress(progress / 100)
-
-# Display full employee table
-st.dataframe(st.session_state.employees)
-
-def create_progress_bar(status):
-    colors = {
-        "Completed": "#4CAF50",  # Green
-        "In Progress": "#2196F3",  # Blue
-        "Not Started": "#E0E0E0"  # Light Gray
+# Custom CSS for styling
+st.markdown("""
+<style>
+    .stProgress > div > div > div > div {
+        background-color: #4CAF50;
     }
-    return f'<span style="background-color: {colors[status]}; color: white; padding: 5px 10px; border-radius: 15px; margin-right: 5px;">{status}</span>'
-
-def onboarding_progress():
-    st.title("Training and Setup Progress")
-
-    tasks = {
-        "Day 1": ["FERPA Training", "Color Code Personality"],
-        "Day 2": ["TeamDynamix", "FERPA Restrictions", "Meet with KM Team"],
-        "Day 3": ["Call Rubric w/ Auditor", "ZOHO quiz", "Day 3 Call Shadowing"],
-        "Day 4": ["Chat Rubric w/ Auditor", "Day 4 Chat Shadowing", "Ticket Definitions Quiz"],
-        "Day 5": ["Ticket Rubric w/ Auditor", "Meet with Ticketing Team", "Password Reset Scenario (Call)", "Password Reset Scenario (Chat)", "Day 5 Shadowing"],
-        "Day 6": ["Classroom Emergency Ticket", "DUO Scenario", "Zoom/Kaltura Scenario"],
-        "Day 7": ["Common Troubleshooting", "Supervised Chats"],
-        "Day 8": ["Account Issues", "Adobe Creative Cloud", "Supervised Phone Calls", "Supervised Chats"],
-        "Day 9": ["Pathway Students", "Day 9 Shadowing", "Supervised Calls", "Supervised Chats"],
-        "Day 10": ["Daily 4", "Final Exam", "Exit One-on-One"]
+    .stProgress {
+        height: 20px;
     }
+    .metric-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 5px;
+        padding: 10px;
+        text-align: center;
+    }
+    .metric-value {
+        font-size: 24px;
+        font-weight: bold;
+    }
+    .metric-label {
+        font-size: 14px;
+        color: #888;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-    employees = [
-        {"name": "Employee1", "department": "Analyst"},
-        {"name": "Employee2", "department": "Analyst"},
-        {"name": "Employee3", "department": "Analyst"}
+def home():
+    st.title("IT Staffing Dashboard")
+
+    # Metrics
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    metrics = [
+        ("Total New Hires", get_total_new_hires()),
+        ("Onboarding This Month", get_onboarding_this_month()),
+        ("Completed This Month", get_completed_this_month()),
+        ("Overdue Tasks", 0),  # Placeholder
+        ("Total Offboards", get_total_offboards()),
+        ("Offboard This Month", 0)  # Placeholder
     ]
+    
+    for i, (label, value) in enumerate(metrics):
+        with eval(f"col{i+1}"):
+            st.markdown(f"""
+            <div class="metric-card">
+                <div class="metric-value">{value}</div>
+                <div class="metric-label">{label}</div>
+            </div>
+            """, unsafe_allow_html=True)
 
-    tabs = st.tabs(list(tasks.keys()))
+    # Onboarding Progress Chart
+    st.header("Onboarding Progress")
+    onboarding_data = get_onboarding_data()
+    if onboarding_data:
+        df = pd.DataFrame(onboarding_data)
+        df['Month'] = pd.to_datetime(df['_id'], format='%m').dt.strftime('%b')
+        df = df.melt('Month', var_name='Status', value_name='Count')
+        
+        chart = alt.Chart(df).mark_bar().encode(
+            x='Month:O',
+            y='Count:Q',
+            color=alt.Color('Status:N', scale=alt.Scale(domain=['Completed', 'In Progress'], range=['#4CAF50', '#2196F3'])),
+            column='Status:N'
+        ).properties(width=300)
+        
+        st.altair_chart(chart)
+    else:
+        st.write("No onboarding data available yet.")
 
-    for i, (day, day_tasks) in enumerate(tasks.items()):
-        with tabs[i]:
-            st.write(f"**{day}**")
-            for employee in employees:
-                st.write(f"{employee['name']} - {employee['department']}")
-                for task in day_tasks:
-                    status = "Completed" if i < 3 else ("In Progress" if i == 3 else "Not Started")
-                    st.markdown(create_progress_bar(status) + f" {task}", unsafe_allow_html=True)
-                st.write("")  # Add some space between employees
+    # Recent New Hires
+    st.header("Recent New Hires")
+    employees = get_all_employees()
+    if employees:
+        recent_hires = employees[:5]  # Get the 5 most recent hires
+        for hire in recent_hires:
+            col1, col2, col3 = st.columns([2, 2, 4])
+            col1.write(hire['name'])
+            col2.write(hire['position'])
+            col3.progress(int(hire['progress']) / 100)
+    else:
+        st.write("No recent hires to display.")
 
+    # Training and Setup Progress
+    st.header("Training and Setup Progress")
+    if employees:
+        stages = ["Paperwork", "IT Setup", "Orientation", "Department Training", "Project Assignment"]
+        for employee in employees[:5]:  # Display for the 5 most recent hires
+            st.subheader(f"{employee['name']} - {employee['position']}")
+            cols = st.columns(len(stages))
+            for i, stage in enumerate(stages):
+                with cols[i]:
+                    progress = int(employee['progress'])
+                    if i < progress // 20:
+                        color = "#4CAF50"  # Completed
+                    elif i == progress // 20:
+                        color = "#2196F3"  # In Progress
+                    else:
+                        color = "#E0E0E0"  # Not Started
+                    st.markdown(f"""
+                    <div style="text-align: center;">
+                        <div style="font-size: 12px;">{stage}</div>
+                        <div style="background-color: {color}; height: 20px; border-radius: 10px;"></div>
+                    </div>
+                    """, unsafe_allow_html=True)
+    else:
+        st.write("No employees to display in the Training and Setup Progress.")
 
+def notes():
+    st.title("Notes")
+    st.write("This is the Notes page.")
+    # Add functionality for notes here
 
-# Add the new onboarding progress component
-onboarding_progress()
-st.markdown("---")
+def offboarding():
+    st.title("Offboarding")
+    st.write("This is the Offboarding page.")
+    # Add offboarding functionality here
+
+def onboarding():
+    st.title("Onboarding")
+    st.write("This is the Onboarding page.")
+    
+    # Form to add a new employee
+    with st.form("new_employee_form"):
+        name = st.text_input("Name")
+        position = st.text_input("Position")
+        start_date = st.date_input("Start Date")
+        submitted = st.form_submit_button("Start Onboarding")
+        if submitted:
+            add_employee(name, position, start_date)
+            st.success(f"Started onboarding process for {name}!")
+
+    # Form to update employee progress
+    st.subheader("Update Employee Progress")
+    employees = get_all_employees()
+    if employees:
+        employee_names = [emp['name'] for emp in employees if emp['progress'] < 100]
+        if employee_names:
+            with st.form("update_progress_form"):
+                selected_employee = st.selectbox("Select Employee", employee_names)
+                progress = st.slider("Progress", 0, 100, 0)
+                update_submitted = st.form_submit_button("Update Progress")
+                if update_submitted:
+                    update_employee_progress(selected_employee, progress)
+                    st.success(f"Updated progress for {selected_employee}!")
+        else:
+            st.write("No employees currently in the onboarding process.")
+    else:
+        st.write("No employees to update.")
+
+# Define pages
+home_page = st.Page(home, title="Home", icon="🏠")
+notes_page = st.Page(notes, title="Notes", icon="📝")
+offboarding_page = st.Page(offboarding, title="Offboarding", icon="👋")
+onboarding_page = st.Page(onboarding, title="Onboarding", icon="🆕")
+
+# Create navigation
+pages = [home_page, notes_page, offboarding_page, onboarding_page]
+pg = st.navigation(pages)
+
+# Run the selected page
+pg.run()
