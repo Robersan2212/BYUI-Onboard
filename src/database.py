@@ -1,5 +1,5 @@
 import streamlit as st
-from pymongo.mongo_client import MongoClient
+from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from datetime import datetime
 import sys
@@ -8,9 +8,11 @@ import sys
 client = None
 db = None
 main_collection = None
+user_collection = None
+notes_collection = None
 
 def initialize_database():
-    global client, db, main_collection
+    global client, db, main_collection, user_collection, notes_collection
     
     try:
         mongodb_uri = st.secrets['MONGODB_URI']
@@ -23,12 +25,16 @@ def initialize_database():
         client.admin.command('ping')
         print("Pinged your deployment. You successfully connected to MongoDB!")
 
-        # Get the database and collection
+        # Get the database and collections
         db = client['Staffing']
         main_collection = db['main_data']
+        user_collection = db['users']
+        notes_collection = db['notes']
         
         print(f"Connected to database: {db.name}")
-        print(f"Using collection: {main_collection.name}")
+        print(f"Using main collection: {main_collection.name}")
+        print(f"Using user collection: {user_collection.name}")
+        print(f"Using notes collection: {notes_collection.name}")
         
         return True
 
@@ -36,15 +42,38 @@ def initialize_database():
         print(f"An error occurred while connecting to the database: {e}", file=sys.stderr)
         return False
 
-# Initialize the database connection
-initialize_database()
+def check_connection():
+    if client is None or db is None:
+        raise Exception("Database connection not established. Call initialize_database() first.")
+
+# User-related functions
+
+def add_user(email, hashed_password, role):
+    check_connection()
+    user = {
+        "email": email,
+        "password": hashed_password,
+        "role": role
+    }
+    result = user_collection.insert_one(user)
+    return result.acknowledged
+
+def get_user_by_email(email):
+    check_connection()
+    return user_collection.find_one({"email": email})
+
+def update_user_role(email, new_role):
+    check_connection()
+    result = user_collection.update_one(
+        {"email": email},
+        {"$set": {"role": new_role}}
+    )
+    return result.modified_count == 1
+
+# Employee-related functions
 
 def add_employee(name, email, i_number, phone_number, position, start_date, status="Not Started", progress=0):
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
-    
-    # Convert start_date to string format
+    check_connection()
     start_date_str = start_date.strftime("%Y-%m-%d")
     
     employee = {
@@ -56,102 +85,61 @@ def add_employee(name, email, i_number, phone_number, position, start_date, stat
         "start_date": start_date_str,
         "status": status,
         "progress": progress,
-        "access_controls": []  # Initialize with empty list
+        "access_controls": []
     }
-    main_collection.insert_one(employee)
+    result = main_collection.insert_one(employee)
+    return result.acknowledged
 
 def get_all_employees():
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     return list(main_collection.find())
 
 def get_employee_by_name(name):
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     return main_collection.find_one({"name": name})
 
 def get_total_new_hires():
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     return main_collection.count_documents({})
 
 def get_total_offboards():
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     return main_collection.count_documents({"status": "Offboarded"})
 
 def get_onboarding_this_month():
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     current_month = datetime.now().month
+    current_year = datetime.now().year
     return main_collection.count_documents({
-        "start_date": {"$regex": f"^{datetime.now().year}-{current_month:02d}"},
+        "start_date": {"$regex": f"^{current_year}-{current_month:02d}"},
         "status": {"$ne": "Completed"}
     })
 
 def get_completed_this_month():
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     current_month = datetime.now().month
+    current_year = datetime.now().year
     return main_collection.count_documents({
-        "start_date": {"$regex": f"^{datetime.now().year}-{current_month:02d}"},
+        "start_date": {"$regex": f"^{current_year}-{current_month:02d}"},
         "status": "Completed"
     })
 
 def get_onboarding_data():
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     pipeline = [
         {
             "$group": {
-                "_id": {
-                    "$substr": [
-                        "$start_date",
-                        0,
-                        7
-                    ]
-                },
-                "Completed": {
-                    "$sum": {
-                        "$cond": [
-                            {
-                                "$eq": ["$status", "Completed"]
-                            },
-                            1,
-                            0
-                        ]
-                    }
-                },
-                "In Progress": {
-                    "$sum": {
-                        "$cond": [
-                            {
-                                "$eq": ["$status", "In Progress"]
-                            },
-                            1,
-                            0
-                        ]
-                    }
-                }
+                "_id": {"$substr": ["$start_date", 0, 7]},
+                "Completed": {"$sum": {"$cond": [{"$eq": ["$status", "Completed"]}, 1, 0]}},
+                "In Progress": {"$sum": {"$cond": [{"$eq": ["$status", "In Progress"]}, 1, 0]}}
             }
         },
-        {
-            "$sort": {"_id": 1}
-        }
+        {"$sort": {"_id": 1}}
     ]
     return list(main_collection.aggregate(pipeline))
 
 def update_employee_progress(name, progress, status):
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     result = main_collection.update_one(
         {"name": name},
         {"$set": {"progress": progress, "status": status}}
@@ -159,9 +147,7 @@ def update_employee_progress(name, progress, status):
     return result.modified_count == 1
 
 def update_employee_access(name, access_controls):
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
+    check_connection()
     result = main_collection.update_one(
         {"name": name},
         {"$set": {"access_controls": access_controls}}
@@ -169,37 +155,28 @@ def update_employee_access(name, access_controls):
     return result.modified_count == 1
 
 def delete_employee(name):
-    global main_collection
-    if main_collection is None:
-        raise Exception("Database connection not established")
-    
+    check_connection()
     result = main_collection.delete_one({"name": name})
     return result.deleted_count == 1
 
+# Note-related functions
+
 def add_note(user, content):
-    global db
-    if db is None:
-        raise Exception("Database connection not established")
-    notes_collection = db['notes']
+    check_connection()
     note = {
         "user": user,
         "content": content,
         "date": datetime.now()
     }
-    notes_collection.insert_one(note)
+    result = notes_collection.insert_one(note)
+    return result.acknowledged
 
 def get_notes_by_user(user):
-    global db
-    if db is None:
-        raise Exception("Database connection not established")
-    notes_collection = db['notes']
+    check_connection()
     return list(notes_collection.find({"user": user}).sort("date", -1))
 
 def get_all_notes():
-    global db
-    if db is None:
-        raise Exception("Database connection not established")
-    notes_collection = db['notes']
+    check_connection()
     return list(notes_collection.find().sort("date", -1))
 
 # Test connection and print database info

@@ -2,9 +2,11 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import datetime
-from pages.onboarding import onboarding, training_days
+from src.auth.auth import init_session_state, auth_page, require_auth, check_permission, show_user_info
+from pages.onboarding import onboarding, training_days  # Import training_days here
 from pages.offboarding import offboarding
 from pages.notes import notes
+from pages.admin import admin_page
 from src.database import (
     initialize_database,
     get_all_employees, get_total_new_hires, get_total_offboards,
@@ -47,6 +49,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# Initialize session state
+init_session_state()
+
+@require_auth
 def home():
     st.markdown("<p class='emoji-title'>🖥️ IT Staffing Dashboard</p>", unsafe_allow_html=True)
 
@@ -98,14 +104,13 @@ def home():
     employees = get_all_employees()
     if employees:
         if 'employee_progress' not in st.session_state:
-            st.session_state.employee_progress = {emp['name']: emp.get('progress', 0) for emp in employees}
-
+            st.session_state.employee_progress = {}
+        
         selected_day = st.selectbox("Select Training Day", list(training_days.keys()))
     
         for employee in employees[:5]:  # Display for the 5 most recent hires
             st.subheader(f"{employee['name']} - {employee['position']}")
-            progress = st.session_state.employee_progress[employee['name']]
-
+            progress = st.session_state.employee_progress.get(employee['name'], 0)
             tasks = training_days[selected_day]
             total_tasks = sum(len(day_tasks) for day_tasks in training_days.values())
             completed_tasks = int(progress / 100 * total_tasks)
@@ -130,33 +135,43 @@ def home():
     else:
         st.write("No employees to display in the Training and Setup Progress.")
 
+@require_auth
+@check_permission('admin')
+def admin_page():
+    st.title("Admin Page")
+    st.write("This is the admin page. Only IT Managers can see this.")
+    # Add admin-specific functionality here
+
 def main():
     # Initialize the database connection
     if not initialize_database():
         st.error("Failed to connect to the database. Please check your connection and try again.")
         return
 
-    # Define pages with emojis
-    pages = {
-        "🏠 Home": home,
-        "🆕 Onboarding": onboarding,
-        "🚪 Offboarding": offboarding,
-        "📝 Notes": notes
-    }
+    # Show user info and logout button in sidebar
+    show_user_info()
 
-    # Sidebar navigation with emojis
-    st.sidebar.title("Navigation")
-    
-    # Use session state to keep track of the selected page
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = "🏠 Home"
+    if not st.session_state.user:
+        auth_page()
+    else:
+        # Define pages with emojis
+        pages = {
+            "🏠 Home": home,
+            "🆕 Onboarding": onboarding,
+            "🚪 Offboarding": offboarding,
+            "📝 Notes": notes,
+            "👑 Admin": admin_page
+        }
 
-    for page_name in pages.keys():
-        if st.sidebar.button(page_name, key=page_name):
-            st.session_state.current_page = page_name
-
-    # Display the selected page
-    pages[st.session_state.current_page]()
+        # Sidebar navigation with emojis
+        st.sidebar.title("Navigation")
+        
+        for page_name, page_func in pages.items():
+            if st.sidebar.button(page_name):
+                if page_name == "👑 Admin" and st.session_state.user['role'] != "It_manager":
+                    st.error("You don't have permission to access the Admin page.")
+                else:
+                    page_func()
 
 if __name__ == "__main__":
     main()

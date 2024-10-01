@@ -1,6 +1,7 @@
 import streamlit as st
 import datetime
-from src.database import add_employee, get_all_employees, delete_employee, update_employee_progress, update_employee_access
+from src.auth.auth import require_auth, check_permission
+from src.database import add_employee, get_all_employees, update_employee_progress
 
 # Define the training days and tasks
 training_days = {
@@ -15,6 +16,7 @@ training_days = {
     "Day 9": ["Pathway Students", "Day 9 Shadowing", "Supervised Calls", "Supervised Chats"],
     "Day 10": ["Daily 4", "Final Exam", "Exit One-on-One"]
 }
+
 
 def onboarding():
     st.title("🆕 New Hire Onboarding")
@@ -33,7 +35,7 @@ def onboarding():
         
         position = st.text_input("Position")
         
-        # Access Control section
+        # New Access Control section
         st.subheader("Access Control")
         access_controls = [
             "KB Catalog",
@@ -53,14 +55,15 @@ def onboarding():
         if submitted:
             if first_name and last_name and email and i_number and phone_number and position:
                 full_name = f"{first_name} {last_name}"
-                add_employee(full_name, email, i_number, phone_number, position, start_date)
-                update_employee_access(full_name, selected_controls)
-                st.success(f"Started onboarding process for {full_name} with selected access controls!")
-                st.rerun()
+                if add_employee(full_name, email, i_number, phone_number, position, start_date, status="In Progress", progress=0):
+                    st.success(f"Started onboarding process for {full_name}!")
+                    st.rerun()
+                else:
+                    st.error("Failed to add employee. Please try again.")
             else:
                 st.error("Please fill in all fields.")
 
-     # Update employee progress
+    # Update employee progress
     st.header("Update Employee Progress")
     employees = get_all_employees()
     if employees:
@@ -74,7 +77,7 @@ def onboarding():
             
             # Initialize progress for new employees
             if selected_employee not in st.session_state.employee_progress:
-                st.session_state.employee_progress[selected_employee] = 0
+                st.session_state.employee_progress[selected_employee] = employee.get('progress', 0)
 
             current_progress = st.session_state.employee_progress[selected_employee]
             tasks = training_days[selected_day]
@@ -94,32 +97,15 @@ def onboarding():
             
             if new_progress != current_progress:
                 st.session_state.employee_progress[selected_employee] = new_progress
-                update_employee_progress(selected_employee, new_progress, "In Progress" if new_progress < 100 else "Completed")
-                st.success(f"Updated progress for {selected_employee}!")
+                status = "In Progress" if new_progress < 100 else "Completed"
+                if update_employee_progress(selected_employee, new_progress, status):
+                    st.success(f"Updated progress for {selected_employee}!")
+                else:
+                    st.error("Failed to update employee progress. Please try again.")
         else:
             st.error("Selected employee not found.")
     else:
         st.write("No employees in the database to update.")
-
-    # Display current employees with option to remove
-    st.header("Current Employees")
-    employees = get_all_employees()
-    if employees:
-        for employee in employees:
-            col1, col2, col3 = st.columns([3, 2, 1])
-            with col1:
-                st.write(f"{employee['name']} - {employee['position']}")
-            with col2:
-                st.write(f"Starting: {employee['start_date']}")
-            with col3:
-                if st.button(f"Remove {employee['name']}", key=f"remove_{employee['name']}"):
-                    if delete_employee(employee['name']):
-                        st.success(f"Removed {employee['name']} from the database.")
-                        st.rerun()
-                    else:
-                        st.error(f"Failed to remove {employee['name']}. Please try again.")
-    else:
-        st.write("No employees in the database.")
 
 if __name__ == "__main__":
     onboarding()
